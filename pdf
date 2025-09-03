@@ -1,0 +1,159 @@
+
+#@title 🚀 最終預覽版：一鍵生成並內嵌顯示PDF報告
+#@markdown > **操作說明：**
+#@markdown > 1. **執行此儲存格**：它會自動準備環境、將字體安裝到系統，並生成 PDF 報告。
+#@markdown > 2. **直接預覽**：執行完畢後，生成的 PDF 將會**直接顯示在此儲存格下方**。
+#@markdown > 3. **備用下載**：下方同時會提供一個下載按鈕，供您選擇性下載。
+
+# ==============================================================================
+# 階段零：環境自我檢查與準備 (Phase 0: Environment Self-Check & Setup)
+# ==============================================================================
+import sys
+import subprocess
+import os
+import base64 # 導入 base64 模組，用於將 PDF 轉換為可嵌入的格式
+
+def setup_environment():
+    """
+    一個整合的函式，用於檢查並安裝所有必要的 Python 套件與系統依賴。
+    """
+    print("🚀 正在啟動環境自我檢查程序...")
+    required_packages = ['gdown', 'weasyprint', 'pytz', 'ipywidgets']
+
+    reqs = subprocess.check_output([sys.executable, '-m', 'pip', 'list'])
+    installed_packages = [r.decode().split(' ')[0] for r in reqs.split()]
+
+    for package in required_packages:
+        if package in installed_packages:
+            print(f"✅ Python 套件 '{package}' 已存在，無需安裝。")
+        else:
+            print(f"⏳ 正在安裝 Python 套件 '{package}'...")
+            subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-q', package])
+            print(f"👍 Python 套件 '{package}' 安裝成功！")
+
+    print("\n[系統依賴] 正在更新 apt 套件庫並安裝 Pango (用於文字渲染)...")
+    subprocess.run(['apt-get', 'update', '-qq'])
+    subprocess.run(['apt-get', 'install', '-y', 'libpango-1.0-0', 'libpangoft2-1.0-0', '-qq'])
+    print("\n✨ 環境準備完成！即將開始執行核心任務... ✨")
+
+# --- 執行環境準備 ---
+setup_environment()
+
+# ==============================================================================
+# 核心任務：生成 PDF 並內嵌顯示
+# ==============================================================================
+import zipfile
+import glob
+import gdown
+from weasyprint import HTML, CSS
+from datetime import datetime
+import pytz
+import ipywidgets as widgets
+from IPython.display import display, HTML as IPHTML
+
+# --- 1. 準備工作：獲取字體、安裝到系統並設定檔名 ---
+print("\n[1/3] 正在準備資源...")
+google_drive_file_id = '1NKofD5jLOI762WNvCdJNpmZQoJ5D95mG'
+local_zip_filename = 'Noto_Sans_TC.zip'
+extract_path = '/content/font_assets'
+target_font_filename = 'NotoSansTC-Regular.ttf'
+output_pdf_path = None
+
+try:
+    # 步驟 1a: 自動化獲取字體
+    print("   -> 正在從 Google Drive 獲取字體...")
+    gdown.download(id=google_drive_file_id, output=local_zip_filename, quiet=True)
+    os.makedirs(extract_path, exist_ok=True)
+    with zipfile.ZipFile(local_zip_filename, 'r') as zip_ref:
+        zip_ref.extractall(extract_path)
+
+    search_pattern = os.path.join(extract_path, '**', target_font_filename)
+    search_results = glob.glob(search_pattern, recursive=True)
+    if not search_results:
+        raise RuntimeError("錯誤：找不到解壓縮後的字體檔案！")
+    found_font_path = search_results[0]
+
+    # 步驟 1b: 將字體安裝到系統目錄
+    print("   -> 正在將字體安裝到 Colab 系統中...")
+    font_dir = '/usr/share/fonts/truetype/noto'
+    os.makedirs(font_dir, exist_ok=True)
+    subprocess.run(['cp', found_font_path, font_dir])
+    subprocess.run(['fc-cache', '-f', '-v'], capture_output=True)
+    print("   -> ✅ 字體成功安裝至系統！")
+
+    # 步驟 1c: 根據當前時間生成檔名
+    print("   -> 正在生成時間戳檔名...")
+    taiwan_tz = pytz.timezone('Asia/Taipei')
+    now_in_taiwan = datetime.now(taiwan_tz)
+    timestamp = now_in_taiwan.strftime('%Y%m%d_%H%M%S')
+    output_pdf_filename = f'PreviewReport_{timestamp}.pdf'
+    output_pdf_path = f'/content/{output_pdf_filename}'
+    print(f"   -> ✅ 報告檔名設定為: {output_pdf_filename}")
+
+except Exception as e:
+    print(f"❌ 資源準備失敗: {e}")
+
+# --- 2. 定義 HTML 內容與 CSS 樣式 ---
+if output_pdf_path:
+    print("\n[2/3] 正在定義 HTML 內容與 CSS 樣式...")
+    html_content = f"""
+    <html><head><meta charset="UTF-8"></head><body>
+        <h1>泡水書數位化重建專案</h1>
+        <h2>內嵌預覽驗證報告</h2>
+        <p>這份報告驗證了**系統級字體安裝**與**內嵌顯示**方案的成功。</p>
+        <ol>
+            <li>所有依賴已自動安裝。</li>
+            <li>字體已成功安裝至系統。</li>
+            <li><strong>這份 PDF 報告被直接嵌入在 Colab 輸出欄位中。</strong></li>
+        </ol>
+        <hr><p style="color: #555; font-size: 12px;">報告生成時間: {now_in_taiwan.strftime('%Y-%m-%d %H:%M:%S %Z')}</p>
+    </body></html>
+    """
+    css_style = """
+    body { font-family: 'Noto Sans TC', sans-serif; font-size: 14px; line-height: 1.8; }
+    h1, h2 { color: #2c3e50; }
+    """
+
+    # --- 3. 執行渲染並內嵌顯示 ---
+    print("\n[3/3] 正在渲染 PDF 並準備內嵌預覽...")
+    HTML(string=html_content).write_pdf(
+        output_pdf_path,
+        stylesheets=[CSS(string=css_style)]
+    )
+
+    print("\n" + "="*50)
+    print("🎉🎉🎉 任務圓滿成功！PDF 已生成！ 🎉🎉🎉")
+    print("="*50)
+
+    # =========================================
+    #  ★★★ 關 鍵 升 級 點 ★★★
+    # =========================================
+    # 步驟 3a: 讀取 PDF 檔案並進行 Base64 編碼
+    with open(output_pdf_path, "rb") as f:
+        base64_pdf = base64.b64encode(f.read()).decode('utf-8')
+
+    # 步驟 3b: 建立一個可以內嵌顯示 PDF 的 HTML iframe
+    # 我們設定了寬度和高度，讓它在輸出區域有足夠的空間顯示
+    pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="95%" height="400px"></iframe>'
+
+    print("👇 **PDF 內嵌預覽：**")
+    # 顯示內嵌的 PDF
+    display(IPHTML(pdf_display))
+
+    # 步驟 3c: (備用) 建立一個互動式下載按鈕
+    print("\n👇 **備用下載選項：**")
+    button = widgets.Button(description="📄 點此下載 PDF 報告", button_style='primary', tooltip='點擊下載', icon='download')
+    output = widgets.Output()
+
+    def on_button_clicked(b):
+        with output:
+            output.clear_output()
+            from google.colab import files
+            files.download(output_pdf_path)
+
+    button.on_click(on_button_clicked)
+    display(button, output)
+else:
+    print("\n" + "="*50)
+    print("❌ PDF 生成失敗，因為前置資源準備出錯，已跳過此步驟。")
+    print("="*50)
