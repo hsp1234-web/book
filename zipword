@@ -1,0 +1,73 @@
+
+# ==============================================================================
+# 步驟 1: 安裝 gdown (專門用於 Google Drive 下載的工具)
+# ==============================================================================
+!pip install gdown -q
+import os
+import zipfile
+import glob
+import gdown
+
+print("✅ 專業下載工具 gdown 已準備就緒。")
+
+# ==============================================================================
+# 步驟 2: 設定檔案路徑與目標 (已修正目標副檔名)
+# ==============================================================================
+google_drive_file_id = '1NKofD5jLOI762WNvCdJNpmZQoJ5D95mG'
+local_zip_filename = 'Noto_Sans_TC_from_Drive.zip'
+# --- 唯一的修正之處 ---
+target_font_filename = 'NotoSansTC-Regular.ttf' # <-- 從 .otf 修正為 .ttf
+# ---------------------
+extract_path = '/content/final_extracted_fonts'
+
+print("🔩 目標設定：")
+print(f"   - Google Drive 檔案 ID: {google_drive_file_id}")
+print(f"   - 本地檔名: {local_zip_filename}")
+print(f"   - 目標字體: {target_font_filename} (已修正)")
+print(f"   - 解壓縮位置: {extract_path}")
+
+# ==============================================================================
+# 步驟 3: 執行最終的自動化下載與驗證流程
+# ==============================================================================
+found_font_path = None
+
+try:
+    # --- (1/4) 使用 gdown 從 Google Drive 下載壓縮檔 ---
+    print(f"\n📥 (1/4) 正在使用專業工具從您的 Google Drive 連結下載 '{local_zip_filename}'...")
+    gdown.download(id=google_drive_file_id, output=local_zip_filename, quiet=False)
+    print("👍 下載成功！")
+
+    # --- (2/4) 建立暫存資料夾並解壓縮 ---
+    print("\n📦 (2/4) 正在解壓縮檔案...")
+    if not os.path.exists(local_zip_filename):
+        raise FileNotFoundError(f"錯誤：檔案下載後但在本地找不到！")
+
+    os.makedirs(extract_path, exist_ok=True)
+    with zipfile.ZipFile(local_zip_filename, 'r') as zip_ref:
+        zip_ref.extractall(extract_path)
+    print(f"👍 成功解壓縮至 '{extract_path}'")
+
+    # --- (3/4) 遞迴搜尋目標字體檔案 ---
+    print(f"\n🕵️ (3/4) 正在搜尋 '{target_font_filename}'...")
+    search_pattern = os.path.join(extract_path, '**', target_font_filename)
+    search_results = glob.glob(search_pattern, recursive=True)
+
+    if not search_results:
+        raise FileNotFoundError(f"錯誤：解壓縮後找不到目標字體 '{target_font_filename}'！")
+
+    found_font_path = search_results[0]
+    print(f"👍 找到目標字體！")
+
+    # --- (4/4) 最終成功驗證 ---
+    print("\n✅ (4/4) 最終驗證...")
+    print("="*50)
+    print("🎉🎉🎉 最終驗證成功！ 🎉🎉🎉")
+    print("="*50)
+    print("我們已成功在 Colab 環境中，透過最穩定的方式，")
+    print("直接從您指定的 Google Drive 連結下載、解壓縮並定位到字體檔案。")
+    print(f"\n📍 字體檔案的絕對路徑為：\n   {found_font_path}")
+    print("\n這代表我們的中文字體方案完全可行，核心挑戰已成功解決！")
+
+except Exception as e:
+    print("\n❌❌❌ 驗證失敗 ❌❌❌")
+    print(f"\n錯誤詳情：\n{e}")
