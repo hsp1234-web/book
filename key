@@ -1,0 +1,66 @@
+#@title 🔑 服務帳號權限驗證腳本
+#@markdown > **操作說明：**
+#@markdown > 1. 在左側檔案列表中，上傳您下載的 JSON 金鑰檔案。
+#@markdown > 2. **修改下方**的 `json_keyfile_name`，使其與您上傳的檔名完全一致。
+#@markdown > 3. **修改下方**的 `folder_id`，貼上您在 Google Drive 中分享的資料夾 ID。
+#@markdown > 4. 執行此儲存格，驗證是否能成功讀取資料夾內容。
+
+# --- 參數設定 (請修改以下兩個變數) ---
+
+# 請將 'YOUR_JSON_KEY_FILENAME.json' 替換為您上傳的金鑰檔名
+json_keyfile_name = 'book-471005-87b97ba6de4d.json'
+
+# 請將 'YOUR_FOLDER_ID' 替換為您分享的資料夾 ID
+# (如何找到 Folder ID: 在瀏覽器中打開該資料夾，網址最後面的一長串亂碼就是它的 ID)
+# 例如：https://drive.google.com/drive/folders/abcdefg123456789  <-- ID 就是 abcdefg123456789
+folder_id = '1nqXMi17dNE00PiQ-KTxisl72dhFPDd-v'
+
+
+# --- 驗證程式 ---
+import os
+from google.colab import auth
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+
+print("🚀 正在使用服務帳號金鑰進行認證...")
+
+try:
+    if not os.path.exists(json_keyfile_name):
+        raise FileNotFoundError(f"錯誤：找不到金鑰檔案 '{json_keyfile_name}'。請確認您已上傳且檔名填寫正確。")
+
+    # 定義程式需要存取 Google Drive 的權限範圍
+    SCOPES = ['https://www.googleapis.com/auth/drive']
+    
+    # 使用 JSON 金鑰檔案進行身份認證
+    creds = service_account.Credentials.from_service_account_file(
+        json_keyfile_name, scopes=SCOPES)
+    print("✅ 身份認證成功！")
+
+    # 建立一個可以用來操作 Google Drive API 的服務物件
+    service = build('drive', 'v3', credentials=creds)
+    print("✅ Google Drive API 服務已建立。")
+
+    print(f"\n📁 正在嘗試讀取資料夾 (ID: {folder_id}) 的內容...")
+    
+    # 使用 API 查詢指定資料夾中的所有檔案和資料夾
+    # q="'{folder_id}' in parents" 的意思是「尋找所有父層是這個 folder_id 的項目」
+    results = service.files().list(
+        q=f"'{folder_id}' in parents",
+        pageSize=10, 
+        fields="nextPageToken, files(id, name)").execute()
+    items = results.get('files', [])
+
+    if not items:
+        print("\n🎉 驗證成功！")
+        print("   -> 成功連接到資料夾，但資料夾目前是空的。")
+        print("   -> 您現在可以在該資料夾中放入一些檔案，然後重新執行此儲存格來測試。")
+    else:
+        print("\n🎉🎉🎉 驗證成功！成功讀取到以下檔案：")
+        for item in items:
+            print(f"   - {item['name']} (ID: {item['id']})")
+    
+    print("\n✨ 這代表我們的服務帳號已設定正確，可以開始進行自動化檔案操作了！")
+
+except Exception as e:
+    print("\n❌❌❌ 驗證失敗 ❌❌❌")
+    print(f"\n錯誤詳情：\n{e}")
