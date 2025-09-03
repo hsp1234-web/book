@@ -1,0 +1,166 @@
+
+#@title 🔬 強力圖表擷取器 V25 (純粹擷取版)
+#@markdown > **操作流程：**
+#@markdown > 1. **設定參數**：點擊下方各區塊的 **►** 來展開詳細說明並設定參數。
+#@markdown > 2. **執行並上傳**：**執行此儲存格 (▶️)**，並點擊底部出現的 **「選擇檔案」** 按鈕上傳圖片。
+#@markdown > 3. **分析與迭代**：程式將立即呈現視覺化報告。您可以根據報告中的建議，回到此處手動更新參數，然後**重新執行儲存格**，直到獲得最滿意的擷取結果。
+
+#@markdown ---
+#@markdown ### 🟢 **第一區：輪廓偵測靈敏度**
+#@markdown <details>
+#@markdown <summary>► 點此展開/收合詳細說明</summary>
+#@markdown > **核心技巧：** 這是決定「能否找到」圖表的**最關鍵**區域。如果圖表在陰影中或邊框不清晰導致**偵測不全**，請優先調整此處的滑桿。
+#@markdown ---
+#@markdown **`自適應閾值計算區塊大小 (adaptive_block_size)`**
+#@markdown
+#@markdown * **白話說明**：這是程式在判斷一個像素點「該變黑還是變白」時，要參考周圍多大範圍的鄰居。
+#@markdown * **調整效果**：
+#@markdown     * **調高**：程式的「視野」變大，更能抵抗書頁上**光照不均或陰影**的影響。如果您的照片有的地方亮、有的地方暗，導致圖表邊框斷裂，請**優先調高**此數值。
+#@markdown     * **調低**：程式的「視野」變小，能更好地保留微小的細節，但對光照變化會更敏感。
+#@markdown </details>
+adaptive_block_size = 51 #@param {type:"slider", min:3, max:101, step:2}
+
+#@markdown <details>
+#@markdown <summary>► 點此展開/收合詳細說明</summary>
+#@markdown **`自適應閾值偏移量 (adaptive_c_value)`**
+#@markdown
+#@markdown * **白話說明**：這是在程式算出一個像素點的黑白分界線後，再手動微調的一個「寬容度」。
+#@markdown * **調整效果**：
+#@markdown     * **調高**：相當於放寬標準，會讓更多**比較淺**的灰色線條也被判斷為「黑色」。如果圖表是用比較淡的墨水印的，導致找不到，可以試著**調高**此數值。
+#@markdown     * **調低**：標準變嚴格，只有非常黑的線條才會被保留。
+#@markdown </details>
+adaptive_c_value = 10 #@param {type:"slider", min:1, max:20, step:1}
+
+#@markdown ---
+#@markdown ### 🟢 **第二區：輪廓篩選標準**
+#@markdown <details>
+#@markdown <summary>► 點此展開/收合詳細說明</summary>
+#@markdown > **核心技巧：** 這是決定「找得準不准」的關鍵。首次執行後，將下方報告中「智慧推薦」的數值填入此處，可以過濾掉絕大多數的雜訊。
+#@markdown </details>
+min_chart_area_k = 100 #@param {type:"integer"}
+max_chart_area_k = 8000 #@param {type:"integer"}
+min_aspect_ratio = 0.8 #@param {type:"number"}
+max_aspect_ratio = 1.5 #@param {type:"number"}
+
+#@markdown ---
+#@markdown ### 🟢 **第三區：擷取設定**
+#@markdown <details>
+#@markdown <summary>► 點此展開/收合詳細說明</summary>
+#@markdown > **核心技巧：** 這是決定最終擷取出圖表**範圍**的唯一參數。
+#@markdown </details>
+padding_expansion_percent = 20 #@param {type:"slider", min:0, max:100, step:5}
+#@markdown `擷取邊界擴張 (%)`: 以圖表的**長邊**為 100% 基準，從原圖擴張裁切範圍。`0` 代表不擴張，直接裁切圖表偵測到的邊界。
+
+# ==============================================================================
+# Part A: 環境準備與函式庫導入
+# ==============================================================================
+import cv2
+import numpy as np
+from IPython.display import display, HTML, clear_output
+from PIL import Image
+import io
+from google.colab import files
+
+# ==============================================================================
+# Part B: 核心處理流程與報告生成
+# ==============================================================================
+def process_image_and_report(file_content):
+    """
+    主處理函式。此版本只進行偵測、分析與直接裁切，不包含任何變形校正。
+    """
+    # --- 步驟 0: 讀取圖片並轉換單位 ---
+    min_area = min_chart_area_k * 1000
+    max_area = max_chart_area_k * 1000
+    np_arr = np.frombuffer(file_content, np.uint8)
+    original_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+    # --- 步驟 1: 影像前處理與輪廓偵測 ---
+    gray_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2GRAY)
+    blurred_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
+    binary_image = cv2.adaptiveThreshold(blurred_image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, adaptive_block_size, adaptive_c_value)
+    contours, _ = cv2.findContours(binary_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    found_charts_data, all_contours_for_viz = [], []
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        x, y, w, h = cv2.boundingRect(contour)
+        if h == 0: continue
+        aspect_ratio = w / float(h)
+        is_accepted = (min_area < area < max_area) and (min_aspect_ratio < aspect_ratio < max_aspect_ratio)
+        if is_accepted:
+            found_charts_data.append({"contour": contour, "area": area, "rect": (x,y,w,h), "aspect_ratio": aspect_ratio})
+        all_contours_for_viz.append({'contour': contour, 'accepted': is_accepted})
+
+    # --- 步驟 2: 產生報告的 HTML 結構與智慧推薦 ---
+    clear_output(wait=True)
+    report_style = "<style>details{border:1px solid #aaa;border-radius:4px;padding: .5em .5em 0;}summary{font-weight:bold;margin:-.5em -.5em 0;padding:.5em;cursor:pointer;}details[open]{padding:.5em;}details[open] summary{border-bottom:1px solid #aaa;margin-bottom:.5em;}.report-container{background-color:white;color:black;padding:15px;border-radius:8px;border:1px solid #ddd;margin-top:1em;}.report-container h2,.report-container h3,.report-container h4{color:black;margin-top:0;}.report-container code{background-color:#eee;padding:2px 5px;border-radius:4px;}.report-container table{border-collapse:collapse;width:100%;margin-top:10px;}.report-container th,.report-container td{border:1px solid #ccc;padding:8px;text-align:left;}.report-container th{background-color:#f2f2f2;}</style>"
+    display(HTML(report_style))
+    report_html = f'<div class="report-container"><h2>📊 視覺化實驗報告</h2><h4>處理結果報告：</h4><ul><li><b>成果：</b> 使用當前參數，成功找到了 <b>{len(found_charts_data)}</b> 個物件。</li></ul>'
+    if found_charts_data:
+        areas = [d['area']/1000 for d in found_charts_data]; ratios = [d['aspect_ratio'] for d in found_charts_data]
+        min_a, max_a, avg_a = min(areas), max(areas), np.mean(areas); min_r, max_r, avg_r = min(ratios), max(ratios), np.mean(ratios)
+        rec_min_area = int(min_a*0.95); rec_max_area = int(max_a*1.05); rec_min_ratio = round(min_r*0.95,2); rec_max_ratio = round(max_r*1.05,2)
+        report_html += f"""<details><summary>► 智慧參數推薦</summary><div><p>根據本次分析，建議您將【第二區】的篩選參數更新為以下數值：</p><table><thead><tr><th>參數名稱</th><th>建議值</th><th>數據洞察 (最小 / 平均 / 最大)</th></tr></thead><tbody>
+        <tr><td><b>min_chart_area_k</b></td><td><code>{rec_min_area}</code></td><td rowspan="2">{min_a:.1f}k / {avg_a:.1f}k / {max_a:.1f}k</td></tr>
+        <tr><td><b>max_chart_area_k</b></td><td><code>{rec_max_area}</code></td></tr>
+        <tr><td><b>min_aspect_ratio</b></td><td><code>{rec_min_ratio}</code></td><td rowspan="2">{min_r:.2f} / {avg_r:.2f} / {max_r:.2f}</td></tr>
+        <tr><td><b>max_aspect_ratio</b></td><td><code>{rec_max_ratio}</code></td></tr></tbody></table></div></details>"""
+    report_html += "</div>"; display(HTML(report_html))
+
+    # --- 步驟 3: 顯示輪廓分析圖 ---
+    analysis_image = original_image.copy()
+    for item in all_contours_for_viz:
+        color = (0, 255, 0) if item['accepted'] else (0, 0, 255)
+        cv2.drawContours(analysis_image, [item['contour']], -1, color, 3)
+    display(HTML('<div class="report-container"><h4>1. 「我如何找到它們」—— 輪廓分析圖 (綠色=符合條件, 紅色=已捨棄)</h4></div>'))
+    display(Image.fromarray(cv2.cvtColor(analysis_image, cv2.COLOR_BGR2RGB)))
+
+    # --- 步驟 4: 遍歷每一個找到的圖表，進行直接裁切並展示 ---
+    display(HTML('<div class="report-container"><h4>2. 「這是我的成果」—— 最終擷取成品</h4></div>'))
+    if not found_charts_data:
+        print("🔴 未找到任何符合條件的物件。請參考上方的分析圖，調整參數後再試一次。")
+    else:
+        found_charts_data.sort(key=lambda d: (d['rect'][1] // 100, d['rect'][0] // 100))
+        for i, data in enumerate(found_charts_data):
+            # 核心步驟：只進行裁切，不進行任何校正
+            x, y, w, h = data['rect']
+            long_edge = max(w, h)
+            padding = int(long_edge * (padding_expansion_percent / 100.0))
+
+            # 計算擴展後的裁切範圍，並確保不超出原圖邊界
+            y_start = max(0, y - padding)
+            y_end = min(original_image.shape[0], y + h + padding)
+            x_start = max(0, x - padding)
+            x_end = min(original_image.shape[1], x + w + padding)
+
+            # 從原始圖片中直接裁切
+            final_crop = original_image[y_start:y_end, x_start:x_end]
+
+            if final_crop.size > 0:
+                # 顯示成品與屬性報告
+                property_report_html = f"""<div class="report-container" style="margin-top:10px;margin-bottom:25px;"><h4 style="margin-top:0;">物件 #{i+1} 屬性報告</h4><table><thead><tr><th>屬性</th><th>數值</th></tr></thead><tbody>
+                <tr><td><b>輪廓面積</b></td><td><code>{data['area']/1000:.1f} k</code></td></tr>
+                <tr><td><b>原始邊界框 (W x H)</b></td><td><code>{data['rect'][2]} x {data['rect'][3]}</code> 像素</td></tr>
+                <tr><td><b>長寬比</b></td><td><code>{data['aspect_ratio']:.2f}</code></td></tr>
+                </tbody></table></div>"""
+                display(HTML(f"<hr><h3>物件 #{i+1}</h3>"))
+                display(Image.fromarray(cv2.cvtColor(final_crop, cv2.COLOR_BGR2RGB)))
+                display(HTML(property_report_html))
+
+# ==============================================================================
+# Part D: 使用者互動介面
+# ==============================================================================
+def on_upload(change):
+    """處理檔案上傳事件的函式。"""
+    if not change.new: return
+    uploaded_file = change.owner
+    if not uploaded_file.value: return
+    file_content = uploaded_file.value[list(uploaded_file.value.keys())[0]]['content']
+    process_image_and_report(file_content)
+    uploaded_file.value.clear(); uploaded_file._counter = 0
+
+print("✅ 環境準備完成。")
+display(HTML("<h3>🔵 請上傳您的書頁圖片</h3><p>程式將使用您在頂部設定的參數進行處理與分析。</p>"))
+uploader = widgets.FileUpload(accept='image/*', multiple=False, description='選擇檔案')
+uploader.observe(on_upload, names='value')
+display(uploader)
